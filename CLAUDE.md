@@ -4,12 +4,11 @@ Real-time aircraft visualiser that projects planes flying overhead onto your cei
 
 ## Your job when someone opens this project
 
-1. Ask the user: **"What's your home address or neighbourhood?"**
-2. Convert that to lat/lon (you can do this yourself — no need to ask them to look it up)
-3. Write those coordinates into `.env` (copy from `.env.example` if it doesn't exist yet)
-4. Run the app
+1. Ask the user: **"Go to Google Maps, right-click your home, and paste the coordinates here."**
+2. Write those coordinates into `.env` (copy from `.env.example` if it doesn't exist yet)
+3. Run the app
 
-That's it. Do not ask the user to find their own coordinates or edit any files.
+That's it. Do not proceed until you have coordinates from the user.
 
 ## Running the app
 
