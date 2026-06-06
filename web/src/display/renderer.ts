@@ -23,7 +23,7 @@ import {
   type Meters,
   type Point,
 } from "@shared/index.js";
-import { AIRPORTS } from "./airports.js";
+import { getAirports } from "./airports.js";
 import { classifyGlyph, drawAircraftGlyph, GLYPH_SCALE } from "./aircraftGlyph.js";
 import { computeSky, type Sky, type Tle } from "./celestial.js";
 import { ASTERISMS } from "./stars.js";
@@ -410,7 +410,7 @@ export class Renderer {
   private drawAirport(cfg: Config, proj: ProjOpts): void {
     const ctx = this.ctx;
     const rwyRgb: [number, number, number] = [150, 180, 220];
-    for (const ap of AIRPORTS) {
+    for (const ap of getAirports(cfg.centerLat, cfg.centerLon)) {
       let cx = 0;
       let cy = 0;
       let n = 0;
@@ -812,7 +812,7 @@ export class Renderer {
       const head = ac.origin ? `${ac.origin} → ${ac.destination}` : `→ ${ac.destination}`;
       out.push({ text: ac.destName ? `${head}   ${ac.destName}` : head, kind: "sub" });
       if (cfg.showRouteDetail && ac.destLat != null && ac.destLon != null) {
-        const bits: string[] = [`${localTimeAt(ac.destLon)} local`];
+        const bits: string[] = [`${localTimeAt(ac.destLon, ac.destLat)} local`];
         if (ac.lat != null && ac.lon != null) {
           const mi = Math.round(greatCircleMiles(ac.lat, ac.lon, ac.destLat, ac.destLon));
           if (mi > 1) bits.push(`${mi.toLocaleString("en-US")} mi to go`);
@@ -991,11 +991,35 @@ function greatCircleMiles(lat1: number, lon1: number, lat2: number, lon2: number
   return 3958.8 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/** Longitude-based mean solar time at a place (no DST/tz db) as HH:MM. */
-function localTimeAt(lon: number): string {
+// Known fixed offsets (UTC minutes) for regions where solar time is noticeably wrong.
+// Keyed by [minLon, maxLon, minLat, maxLat] → offsetMin from UTC.
+const TZ_OVERRIDES: [number, number, number, number, number][] = [
+  // India (IST = UTC+5:30) — covers the subcontinent
+  [68, 98, 6, 38, 330],
+  // Nepal (NPT = UTC+5:45)
+  [80, 89, 26, 31, 345],
+  // Sri Lanka (SLST = UTC+5:30)
+  [79, 82, 5, 10, 330],
+  // Bangladesh (BST = UTC+6)
+  [88, 93, 20, 27, 360],
+  // Myanmar (MMT = UTC+6:30)
+  [92, 102, 9, 29, 390],
+];
+
+/** Local time at a longitude, using known timezone overrides where solar time is wrong. */
+function localTimeAt(lon: number, lat?: number): string {
   const now = new Date();
   const utcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
-  let m = (utcMin + (lon / 15) * 60) % 1440;
+  let offsetMin = (lon / 15) * 60; // solar mean time fallback
+  if (lat !== undefined) {
+    for (const [minLon, maxLon, minLat, maxLat, fixedOffset] of TZ_OVERRIDES) {
+      if (lon >= minLon && lon <= maxLon && lat >= minLat && lat <= maxLat) {
+        offsetMin = fixedOffset;
+        break;
+      }
+    }
+  }
+  let m = (utcMin + offsetMin) % 1440;
   if (m < 0) m += 1440;
   const hh = Math.floor(m / 60);
   const mm = Math.floor(m % 60);

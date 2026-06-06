@@ -18,6 +18,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = resolve(__dirname, "../data");
 const WEB_DIST = resolve(__dirname, "../../web/dist");
 
+// Load .env from the project root if present (simple key=value, no package needed).
+import { readFileSync } from "node:fs";
+try {
+  const env = readFileSync(new URL("../../../.env", import.meta.url), "utf8");
+  for (const line of env.split("\n")) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.+?)\s*$/);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2];
+  }
+} catch { /* no .env file — that's fine */ }
+
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const SOURCE = (process.env.DATA_SOURCE as DataSource) ?? "radio";
@@ -34,6 +44,14 @@ const API_POLL_MS = Number(process.env.API_POLL_MS ?? 4000);
 async function main(): Promise<void> {
   const store = new ConfigStore(resolve(DATA_DIR, "config.json"));
   await store.load();
+
+  // Apply location from .env if provided, overriding any saved config.
+  const envLat = process.env.LAT ? Number(process.env.LAT) : null;
+  const envLon = process.env.LON ? Number(process.env.LON) : null;
+  if (envLat !== null && envLon !== null && !isNaN(envLat) && !isNaN(envLon)) {
+    store.patch({ centerLat: envLat, centerLon: envLon });
+    console.log(`[server] location set from .env: ${envLat}, ${envLon}`);
+  }
 
   const enricher = new RouteEnricher(
     resolve(DATA_DIR, "route-cache.json"),
