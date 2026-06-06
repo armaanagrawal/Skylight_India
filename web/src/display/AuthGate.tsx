@@ -44,7 +44,7 @@ export function AuthGate({ onAuthed }: Props) {
     <div className="gate-root">
       <div className="gate-card">
         <div className="gate-icon">✈</div>
-        <h1 className="gate-title">Skylight</h1>
+        <h1 className="gate-title">Skylight India</h1>
         <p className="gate-subtitle">Live flights overhead — enter the access code to continue.</p>
         <form onSubmit={submit} className="gate-form">
           <input
@@ -62,6 +62,16 @@ export function AuthGate({ onAuthed }: Props) {
         </form>
         {error && <p className="gate-error">{error}</p>}
       </div>
+      <p className="gate-footer">
+        built on{" "}
+        <a href="https://github.com/armaanagrawal/Skylight_India" target="_blank" rel="noopener noreferrer">
+          Skylight India
+        </a>{" "}
+        using{" "}
+        <a href="https://github.com/cpaczek/skylight" target="_blank" rel="noopener noreferrer">
+          cpaczek/skylight
+        </a>
+      </p>
     </div>
   );
 }
