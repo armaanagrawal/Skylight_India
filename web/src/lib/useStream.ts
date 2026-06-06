@@ -5,12 +5,15 @@ import { Connection, type StreamState } from "./connection.js";
  * Open a single WS connection for the lifetime of the page and expose its
  * live state plus the connection handle (for sending patches).
  */
-export function useStream(role: "display" | "control"): {
+export function useStream(
+  role: "display" | "control",
+  location?: { lat: number; lon: number },
+): {
   state: StreamState;
   conn: Connection;
 } {
   const connRef = useRef<Connection | null>(null);
-  if (!connRef.current) connRef.current = new Connection(role);
+  if (!connRef.current) connRef.current = new Connection(role, location);
   const conn = connRef.current;
 
   const [state, setState] = useState<StreamState>(conn.state);

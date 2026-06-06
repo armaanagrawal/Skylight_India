@@ -6,8 +6,12 @@ import { Renderer } from "./renderer.js";
 
 const THEMES: Theme[] = ["ambient", "telemetry", "focus"];
 
-export function Display() {
-  const { state, conn } = useStream("display");
+interface DisplayProps {
+  location?: { lat: number; lon: number };
+}
+
+export function Display({ location }: DisplayProps) {
+  const { state, conn } = useStream("display", location);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
 

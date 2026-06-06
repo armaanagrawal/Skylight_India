@@ -24,7 +24,7 @@ export type ServerMessage =
 
 /** Client -> server. */
 export type ClientMessage =
-  | { type: "hello"; role: "display" | "control" }
+  | { type: "hello"; role: "display" | "control"; lat?: number; lon?: number }
   | { type: "patchConfig"; patch: Partial<Config> }
   | { type: "setConfig"; config: Config }
   | { type: "resetConfig" };

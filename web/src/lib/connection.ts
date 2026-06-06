@@ -33,7 +33,10 @@ export class Connection {
     status: null,
   };
 
-  constructor(private role: "display" | "control") {}
+  constructor(
+    private role: "display" | "control",
+    private location?: { lat: number; lon: number },
+  ) {}
 
   connect(): void {
     this.closed = false;
@@ -53,7 +56,12 @@ export class Connection {
       return;
     }
     this.ws.onopen = () => {
-      this.send({ type: "hello", role: this.role });
+      this.send({
+        type: "hello",
+        role: this.role,
+        lat: this.location?.lat,
+        lon: this.location?.lon,
+      });
       this.update({ connected: true });
     };
     this.ws.onclose = () => {

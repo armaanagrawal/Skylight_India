@@ -1,5 +1,7 @@
 // WebSocket hub: tracks connected clients (display + control panels),
 // broadcasts config / aircraft / status, and applies inbound config commands.
+// In hosted mode, clients send their lat/lon in the hello message and are
+// routed to a city-specific poller — only that city's aircraft are sent to them.
 
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
@@ -11,16 +13,21 @@ import type {
   SourceStatus,
 } from "@shared/index.js";
 import type { ConfigStore } from "./config-store.js";
+import type { LocationManager } from "./location-manager.js";
 
 export interface HubDeps {
   store: ConfigStore;
-  getSnapshot: () => { now: number; aircraft: Aircraft[] };
-  getStatus: () => SourceStatus;
+  locationManager?: LocationManager;
+  /** Fallback snapshot for single-location (local) mode. */
+  getSnapshot?: () => { now: number; aircraft: Aircraft[] };
+  getStatus?: () => SourceStatus;
 }
 
 export class Hub {
   private wss: WebSocketServer;
   private clients = new Set<WebSocket>();
+  /** ws → city ICAO (only set in hosted/multi-city mode). */
+  private clientCity = new Map<WebSocket, string>();
 
   constructor(server: Server, private deps: HubDeps) {
     this.wss = new WebSocketServer({ server, path: "/ws" });
@@ -33,18 +40,30 @@ export class Hub {
   private onConnect(ws: WebSocket): void {
     this.clients.add(ws);
 
-    // Prime the new client with current state.
+    // Prime with config immediately; aircraft sent after location is known.
     this.send(ws, { type: "config", config: this.deps.store.get() });
-    const snap = this.deps.getSnapshot();
-    this.send(ws, { type: "aircraft", now: snap.now, aircraft: snap.aircraft });
-    this.send(ws, { type: "status", status: this.deps.getStatus() });
 
-    ws.on("message", (raw) => this.onMessage(raw.toString()));
-    ws.on("close", () => this.clients.delete(ws));
-    ws.on("error", () => this.clients.delete(ws));
+    // In single-location mode, send current snapshot right away.
+    if (!this.deps.locationManager && this.deps.getSnapshot) {
+      const snap = this.deps.getSnapshot();
+      this.send(ws, { type: "aircraft", now: snap.now, aircraft: snap.aircraft });
+    }
+    if (this.deps.getStatus) {
+      this.send(ws, { type: "status", status: this.deps.getStatus() });
+    }
+
+    ws.on("message", (raw) => this.onMessage(ws, raw.toString()));
+    ws.on("close", () => {
+      this.clients.delete(ws);
+      this.clientCity.delete(ws);
+    });
+    ws.on("error", () => {
+      this.clients.delete(ws);
+      this.clientCity.delete(ws);
+    });
   }
 
-  private onMessage(raw: string): void {
+  private onMessage(ws: WebSocket, raw: string): void {
     let msg: ClientMessage;
     try {
       msg = JSON.parse(raw) as ClientMessage;
@@ -52,8 +71,22 @@ export class Hub {
       return;
     }
     switch (msg.type) {
+      case "hello": {
+        if (this.deps.locationManager && msg.lat != null && msg.lon != null) {
+          const city = this.deps.locationManager.getCity(msg.lat, msg.lon);
+          this.clientCity.set(ws, city.icao);
+          // Patch the shared config with this client's center so the renderer
+          // gets the right lat/lon for airport drawing and range rings.
+          this.deps.store.patch({ centerLat: city.lat, centerLon: city.lon });
+          // Send the initial snapshot for this city.
+          const snap = this.deps.locationManager.getSnapshot(city.icao);
+          this.send(ws, { type: "aircraft", now: snap.now, aircraft: snap.aircraft });
+          console.log(`[hub] client assigned to ${city.name} (${city.icao})`);
+        }
+        break;
+      }
       case "patchConfig":
-        this.deps.store.patch(msg.patch); // store.subscribe broadcasts
+        this.deps.store.patch(msg.patch);
         break;
       case "setConfig":
         this.deps.store.set(msg.config);
@@ -61,8 +94,16 @@ export class Hub {
       case "resetConfig":
         this.deps.store.reset();
         break;
-      case "hello":
-        break;
+    }
+  }
+
+  /** Broadcast aircraft only to clients in a specific city. */
+  broadcastToCity(icao: string, now: number, aircraft: Aircraft[]): void {
+    const msg = JSON.stringify({ type: "aircraft", now, aircraft } satisfies ServerMessage);
+    for (const ws of this.clients) {
+      if (this.clientCity.get(ws) === icao && ws.readyState === WebSocket.OPEN) {
+        ws.send(msg);
+      }
     }
   }
 

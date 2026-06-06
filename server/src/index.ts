@@ -1,6 +1,10 @@
 // Entry point. Wires the config store, data poller, WebSocket hub, REST API,
 // and (in production) serves the built web app. Binds 0.0.0.0 so the control
 // panel is reachable from your phone on the LAN.
+//
+// HOSTED MODE: when PASSWORD env var is set, /api/auth is enabled and the
+// LocationManager routes each client to the nearest supported city's poller.
+// LOCAL MODE: single fixed location from LAT/LON env vars (original behaviour).
 
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -11,6 +15,7 @@ import type { DataSource } from "@shared/index.js";
 import { ConfigStore } from "./config-store.js";
 import { RouteEnricher } from "./enrich/routes.js";
 import { Poller, OpenSkySupplementer } from "./datasource.js";
+import { LocationManager } from "./location-manager.js";
 import { Hub } from "./hub.js";
 import { TleStore } from "./tle.js";
 
@@ -37,20 +42,25 @@ const API_URL =
   process.env.API_URL ?? "https://api.airplanes.live/v2/point/{lat}/{lon}/{r}";
 const POLL_MS = Number(process.env.POLL_MS ?? 1000);
 const ROUTE_CACHE_HOURS = Number(process.env.ROUTE_CACHE_HOURS ?? 12);
-// When on radio, also poll the API and merge (keeps landing aircraft alive).
 const SUPPLEMENT_API = (process.env.SUPPLEMENT_API ?? "1") !== "0";
 const API_POLL_MS = Number(process.env.API_POLL_MS ?? 4000);
+
+/** Set PASSWORD env var to enable the auth gate + multi-city hosted mode. */
+const PASSWORD = process.env.PASSWORD ?? null;
+const HOSTED = PASSWORD !== null;
 
 async function main(): Promise<void> {
   const store = new ConfigStore(resolve(DATA_DIR, "config.json"));
   await store.load();
 
-  // Apply location from .env if provided, overriding any saved config.
-  const envLat = process.env.LAT ? Number(process.env.LAT) : null;
-  const envLon = process.env.LON ? Number(process.env.LON) : null;
-  if (envLat !== null && envLon !== null && !isNaN(envLat) && !isNaN(envLon)) {
-    store.patch({ centerLat: envLat, centerLon: envLon });
-    console.log(`[server] location set from .env: ${envLat}, ${envLon}`);
+  // Apply location from .env if provided (local mode only).
+  if (!HOSTED) {
+    const envLat = process.env.LAT ? Number(process.env.LAT) : null;
+    const envLon = process.env.LON ? Number(process.env.LON) : null;
+    if (envLat !== null && envLon !== null && !isNaN(envLat) && !isNaN(envLon)) {
+      store.patch({ centerLat: envLat, centerLon: envLon });
+      console.log(`[server] location set from .env: ${envLat}, ${envLon}`);
+    }
   }
 
   const enricher = new RouteEnricher(
@@ -66,46 +76,87 @@ async function main(): Promise<void> {
   app.use(express.json());
 
   const server = createServer(app);
-  const hub = new Hub(server, {
-    store,
-    getSnapshot: () => poller.getSnapshot(),
-    getStatus: () => poller.getStatus(),
-  });
 
-  const poller = new Poller({
-    source: SOURCE,
-    radioUrl: RADIO_URL,
-    apiUrlTemplate: API_URL,
-    pollMs: POLL_MS,
-    supplementApi: SUPPLEMENT_API,
-    apiPollMs: API_POLL_MS,
-    getConfig: () => store.get(),
-    enricher,
-    onSnapshot: (now, aircraft) => hub.broadcastAircraft(now, aircraft),
-    onStatus: (status) => hub.broadcastStatus(status),
-  });
+  // --- Auth (hosted mode only) ---
+  if (HOSTED) {
+    app.get("/api/auth-check", (_req, res) => {
+      res.json({ passwordRequired: true });
+    });
+    app.post("/api/auth", (req, res) => {
+      const { password } = req.body as { password?: string };
+      if (password === PASSWORD) {
+        res.json({ ok: true });
+      } else {
+        res.status(401).json({ ok: false, error: "Wrong password" });
+      }
+    });
+  } else {
+    app.get("/api/auth-check", (_req, res) => {
+      res.json({ passwordRequired: false });
+    });
+  }
 
-  // OpenSky supplement — free, different feeder network, catches some military transports.
-  const openSky = new OpenSkySupplementer(() => store.get());
-  poller.openSky = openSky;
-  openSky.start();
+  let hub: Hub;
 
-  // --- REST API (handy for debugging + non-WS clients) ---
+  if (HOSTED) {
+    // Multi-city mode: LocationManager creates one poller per city on demand.
+    const locationManager = new LocationManager(
+      store,
+      enricher,
+      API_URL,
+      POLL_MS,
+      API_POLL_MS,
+      (icao, now, aircraft) => hub.broadcastToCity(icao, now, aircraft),
+    );
+
+    hub = new Hub(server, { store, locationManager });
+    console.log(`[server] hosted mode — password required, multi-city routing active`);
+  } else {
+    // Single-location mode: original behaviour.
+    const poller = new Poller({
+      source: SOURCE,
+      radioUrl: RADIO_URL,
+      apiUrlTemplate: API_URL,
+      pollMs: POLL_MS,
+      supplementApi: SUPPLEMENT_API,
+      apiPollMs: API_POLL_MS,
+      getConfig: () => store.get(),
+      enricher,
+      onSnapshot: (now, aircraft) => hub.broadcastAircraft(now, aircraft),
+      onStatus: (status) => hub.broadcastStatus(status),
+    });
+
+    const openSky = new OpenSkySupplementer(() => store.get());
+    poller.openSky = openSky;
+    openSky.start();
+
+    hub = new Hub(server, {
+      store,
+      getSnapshot: () => poller.getSnapshot(),
+      getStatus: () => poller.getStatus(),
+    });
+
+    poller.start();
+
+    // Extra REST endpoints (local mode only — useful for debugging).
+    app.get("/api/aircraft", (_req, res) => res.json(poller.getSnapshot()));
+    app.get("/api/status", (_req, res) => res.json(poller.getStatus()));
+    app.post("/api/source", (req, res) => {
+      const s = req.body?.source;
+      if (s !== "radio" && s !== "api") {
+        return res.status(400).json({ error: "source must be 'radio' or 'api'" });
+      }
+      poller.setSource(s);
+      res.json(poller.getStatus());
+    });
+  }
+
+  // --- REST API ---
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
   app.get("/api/config", (_req, res) => res.json(store.get()));
   app.post("/api/config", (req, res) => res.json(store.patch(req.body)));
   app.post("/api/config/reset", (_req, res) => res.json(store.reset()));
-  app.get("/api/aircraft", (_req, res) => res.json(poller.getSnapshot()));
-  app.get("/api/status", (_req, res) => res.json(poller.getStatus()));
   app.get("/api/tle", async (_req, res) => res.json(await tleStore.get()));
-  app.post("/api/source", (req, res) => {
-    const s = req.body?.source;
-    if (s !== "radio" && s !== "api") {
-      return res.status(400).json({ error: "source must be 'radio' or 'api'" });
-    }
-    poller.setSource(s);
-    res.json(poller.getStatus());
-  });
 
   // --- static web (production build) ---
   if (existsSync(WEB_DIST)) {
@@ -120,11 +171,13 @@ async function main(): Promise<void> {
     );
   }
 
-  poller.start();
-
   server.listen(PORT, HOST, () => {
     console.log(`[server] listening on http://${HOST}:${PORT}`);
-    console.log(`[server] data source: ${SOURCE} (${SOURCE === "radio" ? RADIO_URL : API_URL})`);
+    if (HOSTED) {
+      console.log(`[server] hosted mode — waiting for clients to send location`);
+    } else {
+      console.log(`[server] data source: ${SOURCE} (${SOURCE === "radio" ? RADIO_URL : API_URL})`);
+    }
     console.log(`[server] control panel: http://<this-host>:${PORT}/control`);
   });
 }
