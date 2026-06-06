@@ -82,6 +82,15 @@ body,
 .sky-status--error .sky-status-dot {
   background: #e0533d;
 }
+.coords-overlay {
+  position: fixed;
+  top: 18px;
+  right: 20px;
+  font: 11px/1 "JetBrains Mono", ui-monospace, monospace;
+  color: #3a4256;
+  pointer-events: none;
+  letter-spacing: 0.03em;
+}
 
 /* ── Auth gate & setup screen ───────────────────────────────────────────── */
 .gate-root {

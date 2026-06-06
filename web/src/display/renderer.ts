@@ -369,10 +369,26 @@ export class Renderer {
         ctx.stroke();
       }
       ctx.setLineDash([]);
-      // Center mark.
+      ctx.restore();
+    }
+
+    // User location — green pulsing dot at center.
+    {
+      const t = this.frameT;
+      const pulse = (t % 2) / 2; // 0→1 every 2 s
+      const ringR = 6 + pulse * 14;
+      const ringAlpha = (1 - pulse) * 0.5 * cfg.brightness;
+      ctx.save();
+      // Pulse ring.
       ctx.beginPath();
-      ctx.arc(cx, cy, 2, 0, Math.PI * 2);
-      ctx.fillStyle = rgba(hexToRgb(cfg.palette.grid), 0.7 * cfg.brightness);
+      ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(74,222,128,${ringAlpha})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // Solid dot.
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(74,222,128,${0.9 * cfg.brightness})`;
       ctx.fill();
       ctx.restore();
     }
