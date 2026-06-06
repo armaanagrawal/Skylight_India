@@ -92,6 +92,11 @@ export function Display() {
           </span>
         </div>
       )}
+      {cfg && (
+        <div className="coords-overlay">
+          {cfg.centerLat.toFixed(4)}°&nbsp;{cfg.centerLon.toFixed(4)}°
+        </div>
+      )}
       {noAircraft && (
         <div className={`sky-status ${apiError ? "sky-status--error" : ""}`}>
           <span className="sky-status-dot" />

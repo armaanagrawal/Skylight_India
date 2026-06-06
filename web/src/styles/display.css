@@ -82,3 +82,127 @@ body,
 .sky-status--error .sky-status-dot {
   background: #e0533d;
 }
+.coords-overlay {
+  position: fixed;
+  top: 18px;
+  right: 20px;
+  font: 11px/1 "JetBrains Mono", ui-monospace, monospace;
+  color: #3a4256;
+  pointer-events: none;
+  letter-spacing: 0.03em;
+}
+
+/* ── Auth gate & setup screen (hosted branch only, kept here for reference) ── */
+.gate-root {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Inter, system-ui, sans-serif;
+  cursor: default;
+}
+.gate-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.gate-icon {
+  font-size: 36px;
+  margin-bottom: 4px;
+}
+.gate-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #e8ecff;
+  letter-spacing: -0.3px;
+}
+.gate-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+.gate-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.gate-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: #0f1117;
+  border: 1px solid #2a2f3d;
+  border-radius: 8px;
+  color: #e8ecff;
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.gate-input:focus {
+  border-color: #9b7ecf;
+}
+.gate-input::placeholder {
+  color: #3a4256;
+}
+.gate-btn {
+  width: 100%;
+  padding: 12px;
+  background: #9b7ecf;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.gate-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.gate-btn:not(:disabled):hover {
+  opacity: 0.88;
+}
+.gate-error {
+  margin: 0;
+  font-size: 13px;
+  color: #e0533d;
+}
+.gate-preview {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+.gate-preview strong {
+  color: #9b7ecf;
+}
+.gate-footer {
+  position: fixed;
+  bottom: 25vh;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12px;
+  color: #3a4256;
+  margin: 0;
+}
+.gate-footer a {
+  color: #3a4256;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.gate-footer a:hover {
+  color: #6b7280;
+}
