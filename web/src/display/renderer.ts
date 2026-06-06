@@ -185,7 +185,7 @@ export class Renderer {
       }
       tr.ac = ac;
       tr.lastSeen = now;
-      tr.hasPos = hasPos;
+      if (hasPos) tr.hasPos = true; // never downgrade — API sometimes omits coords for one cycle
       if (hasPos) {
         const last = tr.history[tr.history.length - 1];
         // Dedup identical fixes (source sometimes repeats a position).

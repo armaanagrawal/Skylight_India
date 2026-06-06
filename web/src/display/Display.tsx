@@ -73,6 +73,12 @@ export function Display() {
   }, [conn]);
 
   const cfg = state.config;
+  const noAircraft = state.connected && state.aircraft.length === 0;
+  const apiError = state.status != null && !state.status.ok;
+  const emptyMsg = apiError
+    ? "Can't reach flight data — check your connection"
+    : "No flights within range right now";
+
   return (
     <div className="display-root">
       <canvas ref={canvasRef} className="display-canvas" />
@@ -84,6 +90,12 @@ export function Display() {
             rot {cfg.rotationDeg}° · mirror {cfg.mirrorX ? "X" : "–"}
             {cfg.mirrorY ? "Y" : ""} · r {cfg.radiusMiles}mi · {cfg.theme}
           </span>
+        </div>
+      )}
+      {noAircraft && (
+        <div className={`sky-status ${apiError ? "sky-status--error" : ""}`}>
+          <span className="sky-status-dot" />
+          {emptyMsg}
         </div>
       )}
       {!state.connected && <div className="reconnect">connecting…</div>}

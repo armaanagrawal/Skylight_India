@@ -111,11 +111,10 @@ export interface Config {
 }
 
 export const DEFAULT_CONFIG: Config = {
-  // Default center: San Francisco International (SFO). Set this to your own
-  // location — ideally where you'll be looking up at the ceiling.
-  centerLat: 37.6213,
-  centerLon: -122.379,
-  radiusMiles: 3,
+  // Kolkata, India. Fine-tune centerLat/centerLon to your home coordinates.
+  centerLat: 22.49332110327643,
+  centerLon: 88.40358237710963,
+  radiusMiles: 15, // wider than the SFO default — Indian airspace is less dense
 
   rotationDeg: 0,
   mirrorX: true,
@@ -127,7 +126,7 @@ export const DEFAULT_CONFIG: Config = {
   hideOnGround: true,
 
   interpolate: true,
-  maxExtrapolationSec: 5,
+  maxExtrapolationSec: 15,
   staleSec: 20,
   smoothing: 0.18,
   maxFps: 0,
