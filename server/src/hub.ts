@@ -75,9 +75,9 @@ export class Hub {
         if (this.deps.locationManager && msg.lat != null && msg.lon != null) {
           const city = this.deps.locationManager.getCity(msg.lat, msg.lon);
           this.clientCity.set(ws, city.icao);
-          // Patch the shared config with this client's center so the renderer
-          // gets the right lat/lon for airport drawing and range rings.
-          this.deps.store.patch({ centerLat: city.lat, centerLon: city.lon });
+          // Use the user's actual coordinates as the map center — the airport
+          // lookup only determines which poller to route them to.
+          this.deps.store.patch({ centerLat: msg.lat, centerLon: msg.lon });
           // Send the initial snapshot for this city.
           const snap = this.deps.locationManager.getSnapshot(city.icao);
           this.send(ws, { type: "aircraft", now: snap.now, aircraft: snap.aircraft });
