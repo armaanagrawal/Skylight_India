@@ -1,6 +1,9 @@
 // Data acquisition: poll the active source (radio | api), normalize records
 // into our Aircraft shape, enrich them, and emit snapshots. dump1090-fa and
 // airplanes.live both use the readsb JSON schema, so one normalizer covers both.
+// OpenSky Network is polled as a free supplementary source every 30 s — it uses
+// a different feeder network and shows aircraft (including some military transports)
+// that airplanes.live may filter or miss.
 
 import type { Aircraft, Config, DataSource } from "@shared/index.js";
 import type { SourceStatus } from "@shared/index.js";
@@ -97,6 +100,93 @@ function mergeSources(radio: Aircraft[], api: Aircraft[]): Aircraft[] {
   return [...byHex.values()];
 }
 
+// ---------------------------------------------------------------------------
+// OpenSky Network supplement
+// ---------------------------------------------------------------------------
+
+const M_TO_FT = 3.28084;
+const MS_TO_KT = 1.94384;
+const MS_TO_FTMIN = 196.85;
+
+/** Normalise an OpenSky state vector (flat array) to our Aircraft shape. */
+function normalizeOpenSky(s: any[], ts: number): Aircraft | null {
+  const hex: string = s[0];
+  if (!hex) return null;
+  const baroM: number | null = s[7];
+  const geoM: number | null = s[13];
+  const onGround: boolean = s[8] ?? false;
+  const gsMs: number | null = s[9];
+  const vrMs: number | null = s[11];
+  const lastContact: number | null = s[4];
+  const seen = lastContact != null ? (ts / 1000 - lastContact) : undefined;
+  return {
+    hex,
+    flight: (s[1] as string | null)?.trim() || undefined,
+    lat: s[6] ?? undefined,
+    lon: s[5] ?? undefined,
+    altBaro: onGround || baroM == null ? null : Math.round(baroM * M_TO_FT),
+    altGeom: geoM == null ? null : Math.round(geoM * M_TO_FT),
+    gs: gsMs == null ? undefined : Math.round(gsMs * MS_TO_KT),
+    track: s[10] ?? undefined,
+    baroRate: vrMs == null ? null : Math.round(vrMs * MS_TO_FTMIN),
+    squawk: s[14] ?? undefined,
+    onGround,
+    seen,
+    ts,
+  };
+}
+
+/** Build an OpenSky bounding-box URL from center + radius. */
+function buildOpenSkyUrl(lat: number, lon: number, radiusMiles: number): string {
+  const dLat = radiusMiles / 69;
+  const dLon = radiusMiles / (69 * Math.cos((lat * Math.PI) / 180));
+  const lamin = (lat - dLat).toFixed(4);
+  const lamax = (lat + dLat).toFixed(4);
+  const lomin = (lon - dLon).toFixed(4);
+  const lomax = (lon + dLon).toFixed(4);
+  return `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
+}
+
+export class OpenSkySupplementer {
+  private timer: ReturnType<typeof setInterval> | null = null;
+  last: Aircraft[] = [];
+
+  constructor(
+    private getConfig: () => Config,
+    private pollMs = 30_000,
+  ) {}
+
+  start(): void {
+    void this.refresh();
+    this.timer = setInterval(() => void this.refresh(), this.pollMs);
+  }
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  private async refresh(): Promise<void> {
+    const c = this.getConfig();
+    const url = buildOpenSkyUrl(c.centerLat, c.centerLon, c.radiusMiles);
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) return;
+      const json = await res.json() as { states?: any[][] };
+      const states: any[][] = json.states ?? [];
+      const ts = Date.now();
+      const list: Aircraft[] = [];
+      for (const s of states) {
+        const ac = normalizeOpenSky(s, ts);
+        if (ac) list.push(ac);
+      }
+      this.last = list;
+      console.log(`[opensky] ${list.length} aircraft`);
+    } catch {
+      // non-fatal — keep last snapshot
+    }
+  }
+}
+
 /** Enrichment we've resolved for an aircraft, kept sticky for its session. */
 interface StickyEnrichment {
   typeName?: string;
@@ -120,6 +210,8 @@ export class Poller {
   private last: Aircraft[] = [];
   /** Most recent API snapshot, used to supplement the radio. */
   private lastApi: Aircraft[] = [];
+  /** Most recent OpenSky snapshot — merged on every tick. */
+  openSky: OpenSkySupplementer | null = null;
   /** hex -> last good enrichment, so resolved routes never flicker back to "—". */
   private sticky = new Map<string, StickyEnrichment>();
 
@@ -198,16 +290,23 @@ export class Poller {
       return;
     }
     const supplement = this.o.source === "radio" && this.o.supplementApi;
-    const merged = supplement ? mergeSources(primary, this.lastApi) : primary;
+    let merged = supplement ? mergeSources(primary, this.lastApi) : primary;
+    // Always fold in OpenSky — it's a free extra source on a separate network.
+    if (this.openSky && this.openSky.last.length > 0) {
+      merged = mergeSources(merged, this.openSky.last);
+    }
     for (const ac of merged) this.enrich(ac, now);
     this.last = merged;
     this.pruneSticky(now);
+    const openSkyCount = this.openSky?.last.length ?? 0;
     this.status = {
       source: this.o.source,
       ok: true,
       count: merged.length,
       lastOk: now,
-      message: supplement ? `radio + ${this.lastApi.length} via API` : undefined,
+      message: supplement
+        ? `radio + ${this.lastApi.length} via API + ${openSkyCount} via OpenSky`
+        : openSkyCount > 0 ? `api + ${openSkyCount} via OpenSky` : undefined,
     };
     this.o.onSnapshot(now, merged);
     this.o.onStatus(this.status);

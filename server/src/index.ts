@@ -10,7 +10,7 @@ import express from "express";
 import type { DataSource } from "@shared/index.js";
 import { ConfigStore } from "./config-store.js";
 import { RouteEnricher } from "./enrich/routes.js";
-import { Poller } from "./datasource.js";
+import { Poller, OpenSkySupplementer } from "./datasource.js";
 import { Hub } from "./hub.js";
 import { TleStore } from "./tle.js";
 
@@ -84,6 +84,11 @@ async function main(): Promise<void> {
     onSnapshot: (now, aircraft) => hub.broadcastAircraft(now, aircraft),
     onStatus: (status) => hub.broadcastStatus(status),
   });
+
+  // OpenSky supplement — free, different feeder network, catches some military transports.
+  const openSky = new OpenSkySupplementer(() => store.get());
+  poller.openSky = openSky;
+  openSky.start();
 
   // --- REST API (handy for debugging + non-WS clients) ---
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
